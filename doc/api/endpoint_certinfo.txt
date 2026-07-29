@@ -9,7 +9,11 @@ Required parameters:
 
         * certificate: the PEM-encoded certificate to be parsed.
         * domain: a domain name indicating a remote host to retrieve a
-          certificate for.
+          certificate for. The endpoint is unauthenticated, so it only
+          connects to hosts that resolve to public addresses; loopback,
+          private, link-local and other special-purpose addresses are
+          refused. Use the cfssl certinfo command locally to inspect the
+          certificate of an internal host.
         * serial and authority_key_id: a certificate serial number and a
           matching authority key to look for in the database
 

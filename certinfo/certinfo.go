@@ -144,15 +144,33 @@ func ParseCSRFile(csrFile string) (*x509.CertificateRequest, error) {
 }
 
 // ParseCertificateDomain parses the certificate served by the given domain.
-func ParseCertificateDomain(domain string) (cert *Certificate, err error) {
+// Only globally routable destinations are dialed: loopback, private,
+// link-local and other special-purpose addresses are refused, so a caller
+// that passes untrusted input cannot be turned into a probe of the internal
+// network. Use ParseCertificateDomainUnrestricted for operator-driven local
+// tooling that legitimately needs to reach such destinations.
+func ParseCertificateDomain(domain string) (*Certificate, error) {
+	return parseCertificateDomain(domain, publicAddressOnly)
+}
+
+// ParseCertificateDomainUnrestricted is ParseCertificateDomain without the
+// restriction on non-public destinations. It must only be used where the
+// domain comes from a local operator, never from a network request.
+func ParseCertificateDomainUnrestricted(domain string) (*Certificate, error) {
+	return parseCertificateDomain(domain, nil)
+}
+
+func parseCertificateDomain(domain string, control controlFunc) (cert *Certificate, err error) {
 	var host, port string
 	if host, port, err = net.SplitHostPort(domain); err != nil {
 		host = domain
-		port = "443"
+		port = defaultTLSPort
 	}
 
+	dialer := &net.Dialer{Timeout: dialTimeout, Control: control}
+
 	var conn *tls.Conn
-	conn, err = tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", net.JoinHostPort(host, port), &tls.Config{InsecureSkipVerify: true})
+	conn, err = tls.DialWithDialer(dialer, "tcp", net.JoinHostPort(host, port), &tls.Config{InsecureSkipVerify: true})
 	if err != nil {
 		return
 	}

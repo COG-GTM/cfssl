@@ -68,7 +68,9 @@ func certinfoMain(args []string, c cli.Config) (err error) {
 			}
 		}
 	} else if c.Domain != "" {
-		if cert, err = certinfo.ParseCertificateDomain(c.Domain); err != nil {
+		// The domain comes from the local operator's command line, so
+		// destinations on the internal network are legitimate here.
+		if cert, err = certinfo.ParseCertificateDomainUnrestricted(c.Domain); err != nil {
 			return
 		}
 	} else if c.Serial != "" && c.AKI != "" {
