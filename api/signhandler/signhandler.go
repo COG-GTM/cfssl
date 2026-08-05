@@ -18,18 +18,45 @@ import (
 // NoBundlerMessage is used to alert the user that the server does not have a bundler initialized.
 const NoBundlerMessage = `This request requires a bundler, but one is not initialized for the API server.`
 
+// ClientCertRequiredMessage is returned when a signature request arrives on the
+// /sign endpoint without a verified TLS client certificate.
+const ClientCertRequiredMessage = `client certificate authentication required`
+
 // A Handler accepts requests with a hostname and certficate
 // parameter (which should be PEM-encoded) and returns a new signed
 // certificate. It includes upstream servers indexed by their
 // profile name.
+//
+// The signing profiles served by this handler carry no auth provider, so the
+// handler itself performs no request authentication. The zero value therefore
+// fails closed: requests are only signed when the client presented a
+// certificate verified by the server's mutual TLS configuration. Handlers
+// built with NewUnauthenticatedHandlerFromSigner drop that requirement and
+// will sign any well-formed request.
 type Handler struct {
-	signer  signer.Signer
-	bundler *bundler.Bundler
+	signer               signer.Signer
+	bundler              *bundler.Bundler
+	allowUnauthenticated bool
 }
 
-// NewHandlerFromSigner generates a new Handler directly from
-// an existing signer.
+// NewHandlerFromSigner generates a new Handler directly from an existing
+// signer. The handler requires callers to be authenticated by mutual TLS;
+// see NewUnauthenticatedHandlerFromSigner to serve requests that carry no
+// credentials at all.
 func NewHandlerFromSigner(signer signer.Signer) (h *api.HTTPHandler, err error) {
+	return newHandlerFromSigner(signer, false)
+}
+
+// NewUnauthenticatedHandlerFromSigner generates a new Handler that signs any
+// request it can parse, with no authentication of the requester whatsoever.
+// Anyone able to reach such a handler can obtain a certificate signed by the
+// CA for an arbitrary identity, so it must only be used when the endpoint is
+// protected by some other means.
+func NewUnauthenticatedHandlerFromSigner(signer signer.Signer) (h *api.HTTPHandler, err error) {
+	return newHandlerFromSigner(signer, true)
+}
+
+func newHandlerFromSigner(signer signer.Signer, allowUnauthenticated bool) (h *api.HTTPHandler, err error) {
 	policy := signer.Policy()
 	if policy == nil {
 		err = errors.New(errors.PolicyError, errors.InvalidPolicy)
@@ -48,12 +75,25 @@ func NewHandlerFromSigner(signer signer.Signer) (h *api.HTTPHandler, err error) 
 		return
 	}
 
+	if allowUnauthenticated {
+		log.Warning("the sign handler is serving unauthenticated signature requests: " +
+			"any client able to reach it can obtain a CA-signed certificate for an arbitrary identity")
+	}
+
 	return &api.HTTPHandler{
 		Handler: &Handler{
-			signer: signer,
+			signer:               signer,
+			allowUnauthenticated: allowUnauthenticated,
 		},
 		Methods: []string{"POST"},
 	}, nil
+}
+
+// hasVerifiedClientCert reports whether the request was made over a TLS
+// connection on which the client presented a certificate that the server
+// verified against its client CA pool.
+func hasVerifiedClientCert(r *http.Request) bool {
+	return r.TLS != nil && len(r.TLS.VerifiedChains) > 0
 }
 
 // SetBundler allows injecting an optional Bundler into the Handler.
@@ -113,6 +153,11 @@ func jsonReqToTrue(js jsonSignRequest) signer.SignRequest {
 // in place of the subject information from the CSR.
 func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) error {
 	log.Info("signature request received")
+
+	if !h.allowUnauthenticated && !hasVerifiedClientCert(r) {
+		log.Warning("rejecting signature request without a verified client certificate")
+		return errors.NewBadRequestString(ClientCertRequiredMessage)
+	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

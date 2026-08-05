@@ -54,7 +54,8 @@ Usage of serve:
                     [-responder cert] [-responder-key key] \
                     [-tls-cert cert] [-tls-key key] [-mutual-tls-ca ca] [-mutual-tls-cn regex] \
                     [-tls-remote-ca ca] [-mutual-tls-client-cert cert] [-mutual-tls-client-key key] \
-                    [-db-config db-config] [-disable endpoint[,endpoint]]
+                    [-db-config db-config] [-disable endpoint[,endpoint]] \
+                    [-allow-unauthenticated-sign]
 
 Flags:
 `
@@ -62,7 +63,8 @@ Flags:
 // Flags used by 'cfssl serve'
 var serverFlags = []string{"address", "port", "min-tls-version", "ca", "ca-key", "ca-bundle", "int-bundle", "int-dir",
 	"metadata", "remote", "config", "responder", "responder-key", "tls-key", "tls-cert", "mutual-tls-ca",
-	"mutual-tls-cn", "tls-remote-ca", "mutual-tls-client-cert", "mutual-tls-client-key", "db-config", "disable"}
+	"mutual-tls-cn", "tls-remote-ca", "mutual-tls-client-cert", "mutual-tls-client-key", "db-config", "disable",
+	"allow-unauthenticated-sign"}
 
 var (
 	conf       cli.Config
@@ -108,6 +110,16 @@ func (s *staticFS) Open(name string) (fs.File, error) {
 
 var errBadSigner = errors.New("signer not initialized")
 var errNoCertDBConfigured = errors.New("cert db not configured (missing -db-config)")
+var errUnauthenticatedSign = errors.New("the sign endpoint authenticates no one and would issue CA-signed " +
+	"certificates for arbitrary identities: require mutual TLS (-mutual-tls-ca with -tls-cert and -tls-key), " +
+	"use the authsign endpoint with an auth key, or pass -allow-unauthenticated-sign to serve it anyway")
+
+// mutualTLSEnforced reports whether the server verifies client certificates,
+// which is the only transport-level authentication available to the otherwise
+// unauthenticated sign endpoint.
+func mutualTLSEnforced() bool {
+	return conf.MutualTLSCAFile != "" && conf.TLSCertFile != "" && conf.TLSKeyFile != ""
+}
 
 var endpoints = map[string]func() (http.Handler, error){
 	"sign": func() (http.Handler, error) {
@@ -115,7 +127,16 @@ var endpoints = map[string]func() (http.Handler, error){
 			return nil, errBadSigner
 		}
 
-		h, err := signhandler.NewHandlerFromSigner(s)
+		var h *api.HTTPHandler
+		var err error
+		switch {
+		case conf.AllowUnauthenticatedSign:
+			h, err = signhandler.NewUnauthenticatedHandlerFromSigner(s)
+		case mutualTLSEnforced():
+			h, err = signhandler.NewHandlerFromSigner(s)
+		default:
+			return nil, errUnauthenticatedSign
+		}
 		if err != nil {
 			return nil, err
 		}

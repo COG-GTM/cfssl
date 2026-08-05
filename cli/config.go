@@ -70,6 +70,10 @@ type Config struct {
 	DBConfigFile      string
 	CRLExpiration     time.Duration
 	Disable           string
+
+	// AllowUnauthenticatedSign opts in to serving the /sign endpoint without
+	// any authentication of the requester.
+	AllowUnauthenticatedSign bool
 }
 
 // registerFlags defines all cfssl command flags and associates their values with variables.
@@ -132,6 +136,8 @@ func registerFlags(c *Config, f *flag.FlagSet) {
 	f.DurationVar(&c.CRLExpiration, "expiry", 7*helpers.OneDay, "time from now after which the CRL will expire (default: one week)")
 	f.IntVar(&log.Level, "loglevel", log.LevelInfo, "Log level (0 = DEBUG, 5 = FATAL)")
 	f.StringVar(&c.Disable, "disable", "", "endpoints to disable")
+	f.BoolVar(&c.AllowUnauthenticatedSign, "allow-unauthenticated-sign", false,
+		"serve the sign endpoint without authentication: any client that can reach it may obtain a CA-signed certificate for an arbitrary identity")
 }
 
 // RootFromConfig returns a universal signer Root structure that can

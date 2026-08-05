@@ -98,11 +98,51 @@ var alsoValidMixedLocalConfig = `
 }`
 
 func newTestHandler(t *testing.T) (h http.Handler) {
-	h, err := NewHandler(testCaFile, testCaKeyFile, nil)
+	h, err := NewUnauthenticatedHandler(testCaFile, testCaKeyFile, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return
+}
+
+// NewHandler serves profiles that carry no auth key, so the requester must be
+// authenticated by mutual TLS.
+func TestNewHandlerRejectsUnauthenticatedRequest(t *testing.T) {
+	h, err := NewHandler(testCaFile, testCaKeyFile, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+
+	csrPEM, err := os.ReadFile(testCSRFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	blob, err := json.Marshal(map[string]interface{}{
+		"certificate_request": string(csrPEM),
+		"hosts":               []string{testDomainName},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Post(ts.URL, "application/json", bytes.NewReader(blob))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if resp.StatusCode != http.StatusBadRequest || bytes.Contains(body, []byte("BEGIN CERTIFICATE")) {
+		t.Fatalf("expected the request to be rejected, got %s: %s", resp.Status, string(body))
+	}
 }
 
 func TestNewHandler(t *testing.T) {

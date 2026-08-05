@@ -3,6 +3,17 @@ THE SIGNING ENDPOINT
 Endpoint: /api/v1/cfssl/sign
 Method:   POST
 
+Authentication:
+
+    This endpoint carries no authentication of its own: it signs whatever
+    CSR it is given, for whatever hosts and subject are requested. It is
+    therefore only served when clients are authenticated by mutual TLS
+    (`cfssl serve -mutual-tls-ca ca.pem -tls-cert cert.pem -tls-key key.pem`),
+    or when the operator explicitly accepts unauthenticated signing with
+    `cfssl serve -allow-unauthenticated-sign`. Otherwise the endpoint is not
+    registered and returns 404. Use the authsign endpoint (see
+    endpoint_authsign.txt) to authenticate requests with an HMAC auth key.
+
 Required parameters:
 
     * certificate_request: the CSR bytes to be signed in PEM

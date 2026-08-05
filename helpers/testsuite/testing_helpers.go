@@ -45,7 +45,10 @@ func StartCFSSLServer(address string, portNumber int, serverData CFSSLServerData
 	// We return this when an error occurs.
 	nilServer := &CFSSLServer{nil, nil}
 
-	args := []string{"serve", "-address", address, "-port", strconv.Itoa(portNumber)}
+	// The test server is only reachable from the test process, so it serves
+	// the sign endpoint without requiring mutual TLS.
+	args := []string{"serve", "-address", address, "-port", strconv.Itoa(portNumber),
+		"-allow-unauthenticated-sign"}
 	var tempCAFile, tempCABundleFile, tempCAKeyFile, tempIntBundleFile string
 	var err error
 	var tempFiles []string
