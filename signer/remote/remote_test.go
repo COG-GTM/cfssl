@@ -345,7 +345,7 @@ func newHandler(t *testing.T, caFile, caKeyFile, op string) (http.Handler, error
 		t.Fatal(err)
 	}
 	if op == "sign" {
-		return apisign.NewHandlerFromSigner(s)
+		return apisign.NewUnauthenticatedHandlerFromSigner(s)
 	} else if op == "info" {
 		return apiinfo.NewHandler(s)
 	}

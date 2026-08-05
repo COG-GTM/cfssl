@@ -433,7 +433,7 @@ func newTestUniversalSigner(t *testing.T, policy *config.Signing) signer.Signer 
 }
 
 func newTestSignHandler(t *testing.T, s signer.Signer) (h http.Handler) {
-	h, err := apisign.NewHandlerFromSigner(s)
+	h, err := apisign.NewUnauthenticatedHandlerFromSigner(s)
 	if err != nil {
 		t.Fatal(err)
 	}
