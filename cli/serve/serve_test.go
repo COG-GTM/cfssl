@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cloudflare/cfssl/cli"
+	"github.com/cloudflare/cfssl/signer/local"
 )
 
 func TestServe(t *testing.T) {
@@ -58,5 +59,31 @@ func TestServe(t *testing.T) {
 	var test = []string{"test"}
 	if err := serverMain(test, c); err == nil {
 		t.Fatalf("There should be an error for argument")
+	}
+}
+
+func TestSignEndpointRequiresAuthentication(t *testing.T) {
+	oldConf, oldSigner := conf, s
+	defer func() { conf, s = oldConf, oldSigner }()
+
+	var err error
+	s, err = local.NewSignerFromFile("../../api/testdata/ca.pem", "../../api/testdata/ca_key.pem", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	conf = cli.Config{}
+	if _, err := endpoints["sign"](); err != errUnauthenticatedSign {
+		t.Fatalf("sign endpoint should fail closed without authentication, got %v", err)
+	}
+
+	conf = cli.Config{TLSCertFile: "cert.pem", TLSKeyFile: "key.pem", MutualTLSCAFile: "ca.pem"}
+	if _, err := endpoints["sign"](); err != nil {
+		t.Fatalf("sign endpoint should be served under mutual TLS: %v", err)
+	}
+
+	conf = cli.Config{AllowUnauthenticatedSign: true}
+	if _, err := endpoints["sign"](); err != nil {
+		t.Fatalf("sign endpoint should be served when unauthenticated signing is allowed: %v", err)
 	}
 }

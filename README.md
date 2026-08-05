@@ -289,8 +289,17 @@ command:
 cfssl serve [-address address] [-ca cert] [-ca-bundle bundle] \
             [-ca-key key] [-int-bundle bundle] [-int-dir dir] [-port port] \
             [-metadata file] [-remote remote_host] [-config config] \
-            [-responder cert] [-responder-key key] [-db-config db-config]
+            [-responder cert] [-responder-key key] [-db-config db-config] \
+            [-allow-unauthenticated-sign]
 ```
+
+The `/api/v1/cfssl/sign` endpoint authenticates no one: it issues a
+CA-signed certificate for any identity requested of it. It is only served
+when clients are authenticated by mutual TLS (`-mutual-tls-ca` together with
+`-tls-cert` and `-tls-key`), or when `-allow-unauthenticated-sign` is passed
+to accept that risk explicitly; otherwise the server refuses to register it.
+To authenticate signature requests instead, configure an auth key on the
+signing profiles and use the `/api/v1/cfssl/authsign` endpoint.
 
 Address and port default to "127.0.0.1:8888". The `-ca` and `-ca-key`
 arguments should be the PEM-encoded certificate and private key to use
