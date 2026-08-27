@@ -29,6 +29,7 @@ import (
 	"github.com/cloudflare/cfssl/api/revoke"
 	"github.com/cloudflare/cfssl/api/scan"
 	"github.com/cloudflare/cfssl/api/signhandler"
+	"github.com/cloudflare/cfssl/auth"
 	"github.com/cloudflare/cfssl/bundler"
 	"github.com/cloudflare/cfssl/certdb/dbconf"
 	certsql "github.com/cloudflare/cfssl/certdb/sql"
@@ -108,6 +109,7 @@ func (s *staticFS) Open(name string) (fs.File, error) {
 
 var errBadSigner = errors.New("signer not initialized")
 var errNoCertDBConfigured = errors.New("cert db not configured (missing -db-config)")
+var errNoAuthProviderConfigured = errors.New("revoke endpoint requires an auth key (config auth_keys \"revoke\" entry or a default signing profile auth_key)")
 
 var endpoints = map[string]func() (http.Handler, error){
 	"sign": func() (http.Handler, error) {
@@ -229,7 +231,25 @@ var endpoints = map[string]func() (http.Handler, error){
 		if db == nil {
 			return nil, errNoCertDBConfigured
 		}
-		return revoke.NewHandler(certsql.NewAccessor(db)), nil
+
+		var provider auth.Provider
+		if conf.CFG != nil {
+			if key, ok := conf.CFG.AuthKeys["revoke"]; ok {
+				var err error
+				provider, err = auth.New(key.Key, nil)
+				if err != nil {
+					return nil, err
+				}
+			}
+			if provider == nil && conf.CFG.Signing != nil && conf.CFG.Signing.Default != nil {
+				provider = conf.CFG.Signing.Default.Provider
+			}
+		}
+		if provider == nil {
+			return nil, errNoAuthProviderConfigured
+		}
+
+		return revoke.NewAuthHandler(certsql.NewAccessor(db), provider)
 	},
 
 	"/": func() (http.Handler, error) {
