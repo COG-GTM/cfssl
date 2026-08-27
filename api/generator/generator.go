@@ -255,6 +255,19 @@ func (cg *CertGeneratorHandler) Handle(w http.ResponseWriter, r *http.Request) e
 		return errors.NewBadRequestString("ca section only permitted in initca")
 	}
 
+	// Profiles that have an auth provider configured must only be
+	// served through the authenticated endpoints (e.g. authsign);
+	// refuse to mint certificates for them here.
+	profile, err := signer.Profile(cg.signer, req.Profile)
+	if err != nil {
+		return err
+	}
+
+	if profile.Provider != nil {
+		log.Error("profile requires authentication")
+		return errors.NewBadRequestString("authentication required")
+	}
+
 	csr, key, err := cg.generator.ProcessRequest(req.Request)
 	if err != nil {
 		log.Warningf("failed to process CSR: %v", err)

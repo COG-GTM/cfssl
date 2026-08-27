@@ -3,12 +3,14 @@ package generator
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/cloudflare/cfssl/api"
+	"github.com/cloudflare/cfssl/auth"
 	"github.com/cloudflare/cfssl/config"
 	"github.com/cloudflare/cfssl/csr"
 	"github.com/cloudflare/cfssl/signer/local"
@@ -141,5 +143,74 @@ func TestNewCertGeneratorHandlerFromSigner(t *testing.T) {
 
 	if err := cg.SetBundler(testCABundle, testIntBundle); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCertGeneratorHandlerRejectsAuthProfiles(t *testing.T) {
+	provider, err := auth.New("0123456789ABCDEF0123456789ABCDEF", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var expiry = 1 * time.Minute
+	policy := &config.Signing{
+		Profiles: map[string]*config.SigningProfile{
+			"authed": {
+				Usage:    []string{"digital signature"},
+				Expiry:   expiry,
+				Provider: provider,
+			},
+		},
+		Default: &config.SigningProfile{
+			Usage:  []string{"server auth"},
+			Expiry: expiry,
+		},
+	}
+	s, err := local.NewSignerFromFile(testCaFile, testCaKeyFile, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(NewCertGeneratorHandlerFromSigner(CSRValidate, s))
+	defer ts.Close()
+
+	newCertBody := func(profile string) *bytes.Reader {
+		req := map[string]interface{}{
+			"request": &csr.CertificateRequest{
+				CN:         "cloudflare.com",
+				Hosts:      []string{"cloudflare.com"},
+				KeyRequest: csr.NewKeyRequest(),
+			},
+			"profile": profile,
+		}
+		body, err := json.Marshal(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bytes.NewReader(body)
+	}
+
+	resp, err := http.Post(ts.URL, "application/json", newCertBody("authed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected %d for auth-required profile, got %d: %s",
+			http.StatusBadRequest, resp.StatusCode, body)
+	}
+	if bytes.Contains(body, []byte("BEGIN CERTIFICATE")) {
+		t.Fatal("a certificate was issued for a profile that requires authentication")
+	}
+
+	resp, err = http.Post(ts.URL, "application/json", newCertBody(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected %d for unauthenticated profile, got %d",
+			http.StatusOK, resp.StatusCode)
 	}
 }
