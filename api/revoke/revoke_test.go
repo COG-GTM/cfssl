@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cloudflare/cfssl/api"
+	"github.com/cloudflare/cfssl/auth"
 	"github.com/cloudflare/cfssl/certdb"
 	"github.com/cloudflare/cfssl/certdb/sql"
 	"github.com/cloudflare/cfssl/certdb/testdb"
@@ -27,6 +28,7 @@ import (
 
 const (
 	fakeAKI = "fake aki"
+	authKey = "0123456789ABCDEF0123456789ABCDEF"
 )
 
 func prepDB() (certdb.Accessor, error) {
@@ -49,7 +51,15 @@ func prepDB() (certdb.Accessor, error) {
 }
 
 func testRevokeCert(t *testing.T, dbAccessor certdb.Accessor, serial, aki, reason string) (resp *http.Response, body []byte) {
-	ts := httptest.NewServer(NewHandler(dbAccessor))
+	provider, err := auth.New(authKey, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewAuthHandler(dbAccessor, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
 	obj := map[string]interface{}{}
@@ -61,7 +71,17 @@ func testRevokeCert(t *testing.T, dbAccessor certdb.Accessor, serial, aki, reaso
 		obj["reason"] = reason
 	}
 
-	blob, err := json.Marshal(obj)
+	request, err := json.Marshal(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	aReq := auth.AuthenticatedRequest{Request: request}
+	aReq.Token, err = provider.Token(aReq.Request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := json.Marshal(aReq)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,6 +91,21 @@ func testRevokeCert(t *testing.T, dbAccessor certdb.Accessor, serial, aki, reaso
 		t.Fatal(err)
 	}
 	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+func postRevokeRequest(t *testing.T, handler http.Handler, body []byte) (resp *http.Response, responseBody []byte) {
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseBody, err = io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,6 +154,101 @@ func TestRevocation(t *testing.T) {
 
 	if cert.Status != "revoked" || cert.Reason != 5 {
 		t.Fatal("cert was not correctly revoked")
+	}
+}
+
+func TestInvalidTokenDoesNotRevoke(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		token []byte
+	}{
+		{name: "wrong token", token: []byte("wrong token")},
+		{name: "absent token"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dbAccessor, err := prepDB()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			provider, err := auth.New(authKey, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler, err := NewAuthHandler(dbAccessor, provider)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			request, err := json.Marshal(map[string]string{
+				"serial":           "1",
+				"authority_key_id": fakeAKI,
+				"reason":           "5",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			aReq := auth.AuthenticatedRequest{Request: request, Token: test.token}
+			body, err := json.Marshal(aReq)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			resp, responseBody := postRevokeRequest(t, handler, body)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("expected bad request response, got %d: %s", resp.StatusCode, responseBody)
+			}
+
+			certs, err := dbAccessor.GetCertificate("1", fakeAKI)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(certs) != 1 {
+				t.Fatal("failed to get one certificate")
+			}
+			if certs[0].Status == "revoked" {
+				t.Fatal("certificate was revoked despite invalid token")
+			}
+		})
+	}
+}
+
+func TestLegacyUnauthenticatedRequestRejected(t *testing.T) {
+	dbAccessor, err := prepDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := auth.New(authKey, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewAuthHandler(dbAccessor, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := json.Marshal(map[string]string{
+		"serial":           "1",
+		"authority_key_id": fakeAKI,
+		"reason":           "5",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, responseBody := postRevokeRequest(t, handler, body)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected bad request response, got %d: %s", resp.StatusCode, responseBody)
+	}
+
+	certs, err := dbAccessor.GetCertificate("1", fakeAKI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) != 1 {
+		t.Fatal("failed to get one certificate")
+	}
+	if certs[0].Status == "revoked" {
+		t.Fatal("certificate was revoked by legacy unauthenticated request")
 	}
 }
 
@@ -226,7 +356,15 @@ func TestOCSPGeneration(t *testing.T) {
 	}
 
 	// 5b. Start the test server
-	ts := httptest.NewServer(NewOCSPHandler(dbAccessor, signer))
+	provider, err := auth.New(authKey, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewAuthOCSPHandler(dbAccessor, signer, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
 	// 6. Prepare the revocation request
@@ -236,7 +374,16 @@ func TestOCSPGeneration(t *testing.T) {
 	obj["authority_key_id"] = revokedAKI
 	obj["reason"] = "unspecified"
 
-	blob, err := json.Marshal(obj)
+	request, err := json.Marshal(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aReq := auth.AuthenticatedRequest{Request: request}
+	aReq.Token, err = provider.Token(aReq.Request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := json.Marshal(aReq)
 	if err != nil {
 		t.Fatal(err)
 	}

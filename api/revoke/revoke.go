@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/cloudflare/cfssl/api"
+	"github.com/cloudflare/cfssl/auth"
 	"github.com/cloudflare/cfssl/certdb"
 	"github.com/cloudflare/cfssl/errors"
 	"github.com/cloudflare/cfssl/helpers"
+	"github.com/cloudflare/cfssl/log"
 	"github.com/cloudflare/cfssl/ocsp"
 
 	stdocsp "golang.org/x/crypto/ocsp"
@@ -21,28 +23,38 @@ import (
 type Handler struct {
 	dbAccessor certdb.Accessor
 	Signer     ocsp.Signer
+	provider   auth.Provider
 }
 
-// NewHandler returns a new http.Handler that handles a revoke request.
-func NewHandler(dbAccessor certdb.Accessor) http.Handler {
+// NewAuthHandler returns a new authenticated http.Handler that handles a
+// revoke request.
+func NewAuthHandler(dbAccessor certdb.Accessor, provider auth.Provider) (http.Handler, error) {
+	if provider == nil {
+		return nil, errors.New(errors.PolicyError, errors.InvalidPolicy)
+	}
 	return &api.HTTPHandler{
 		Handler: &Handler{
 			dbAccessor: dbAccessor,
+			provider:   provider,
 		},
 		Methods: []string{"POST"},
-	}
+	}, nil
 }
 
-// NewOCSPHandler returns a new http.Handler that handles a revoke
-// request and also generates an OCSP response
-func NewOCSPHandler(dbAccessor certdb.Accessor, signer ocsp.Signer) http.Handler {
+// NewAuthOCSPHandler returns a new authenticated http.Handler that handles a
+// revoke request and also generates an OCSP response.
+func NewAuthOCSPHandler(dbAccessor certdb.Accessor, signer ocsp.Signer, provider auth.Provider) (http.Handler, error) {
+	if provider == nil {
+		return nil, errors.New(errors.PolicyError, errors.InvalidPolicy)
+	}
 	return &api.HTTPHandler{
 		Handler: &Handler{
 			dbAccessor: dbAccessor,
 			Signer:     signer,
+			provider:   provider,
 		},
 		Methods: []string{"POST"},
-	}
+	}, nil
 }
 
 // This type is meant to be unmarshalled from JSON
@@ -61,9 +73,20 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) error {
 	}
 	r.Body.Close()
 
-	// Default the status to good so it matches the cli
+	var aReq auth.AuthenticatedRequest
+	err = json.Unmarshal(body, &aReq)
+	if err != nil {
+		log.Errorf("failed to unmarshal authenticated request: %v", err)
+		return errors.NewBadRequest(err)
+	}
+
+	if h.provider == nil || !h.provider.Verify(&aReq) {
+		log.Warning("received authenticated request with invalid token")
+		return errors.NewBadRequestString("invalid token")
+	}
+
 	var req jsonRevokeRequest
-	err = json.Unmarshal(body, &req)
+	err = json.Unmarshal(aReq.Request, &req)
 	if err != nil {
 		return errors.NewBadRequestString("Unable to parse revocation request")
 	}
