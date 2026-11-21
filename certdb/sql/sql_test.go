@@ -338,11 +338,11 @@ func testGetRevokedAndUnexpiredCertificatesSelectColumns(ta TestAccessor, t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	sc, ok := ta.Accessor.(certdb.RevokedAndUnexpiredSelectColumnsAccessor)
+	sa, ok := ta.Accessor.(*Accessor)
 	if !ok {
-		t.Fatal("sql accessor should implement RevokedAndUnexpiredSelectColumnsAccessor")
+		t.Fatalf("want *Accessor, got %T", ta.Accessor)
 	}
-	rets, err := sc.GetRevokedAndUnexpiredCertificatesSelectColumns()
+	rets, err := sa.GetRevokedAndUnexpiredCertificatesSelectColumns()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,13 +356,29 @@ func testGetRevokedAndUnexpiredCertificatesSelectColumns(ta TestAccessor, t *tes
 		t.Errorf("want serial and revoked_at of %+v, got %+v", all[0], got)
 	}
 
-	viaHelper, err := certdb.GetRevokedAndUnexpiredCertificatesForCRL(ta.Accessor)
+	viaHelper, err := GetRevokedAndUnexpiredCertificatesForCRL(ta.Accessor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(viaHelper) != 1 || viaHelper[0].PEM != "" {
 		t.Errorf("GetRevokedAndUnexpiredCertificatesForCRL should use the select-columns query, got %+v", viaHelper)
 	}
+
+	viaWrapper, err := GetRevokedAndUnexpiredCertificatesForCRL(overridingAccessor{Accessor: sa})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(viaWrapper) != 1 || viaWrapper[0].Serial != "override" {
+		t.Errorf("GetRevokedAndUnexpiredCertificatesForCRL should call a wrapper's GetRevokedAndUnexpiredCertificates, got %+v", viaWrapper)
+	}
+}
+
+type overridingAccessor struct {
+	*Accessor
+}
+
+func (overridingAccessor) GetRevokedAndUnexpiredCertificates() ([]certdb.CertificateRecord, error) {
+	return []certdb.CertificateRecord{{Serial: "override"}}, nil
 }
 
 func testInsertOCSPAndGetOCSP(ta TestAccessor, t *testing.T) {

@@ -77,7 +77,6 @@ type Accessor struct {
 }
 
 var _ certdb.Accessor = &Accessor{}
-var _ certdb.RevokedAndUnexpiredSelectColumnsAccessor = &Accessor{}
 
 func wrapSQLError(err error) error {
 	if err != nil {
@@ -219,6 +218,17 @@ func (d *Accessor) GetRevokedAndUnexpiredCertificates() (crs []certdb.Certificat
 	}
 
 	return crs, nil
+}
+
+// GetRevokedAndUnexpiredCertificatesForCRL returns the revoked and unexpired
+// certificates with at least Serial and RevokedAt set. It uses the narrower
+// select-columns query only when a is exactly *Accessor, so types that wrap
+// and override GetRevokedAndUnexpiredCertificates keep their behavior.
+func GetRevokedAndUnexpiredCertificatesForCRL(a certdb.Accessor) ([]certdb.CertificateRecord, error) {
+	if sa, ok := a.(*Accessor); ok {
+		return sa.GetRevokedAndUnexpiredCertificatesSelectColumns()
+	}
+	return a.GetRevokedAndUnexpiredCertificates()
 }
 
 // GetRevokedAndUnexpiredCertificatesSelectColumns gets serial_number and revoked_at from all revoked and unexpired certificate from db (for CRLs).
