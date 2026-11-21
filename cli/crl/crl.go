@@ -4,6 +4,7 @@ package crl
 import (
 	"os"
 
+	"github.com/cloudflare/cfssl/certdb"
 	"github.com/cloudflare/cfssl/certdb/dbconf"
 	certsql "github.com/cloudflare/cfssl/certdb/sql"
 	"github.com/cloudflare/cfssl/cli"
@@ -78,7 +79,7 @@ func generateCRL(c cli.Config) (crlBytes []byte, err error) {
 		return nil, err
 	}
 
-	certs, err := dbAccessor.GetRevokedAndUnexpiredCertificatesSelectColumns()
+	certs, err := certdb.GetRevokedAndUnexpiredCertificatesForCRL(dbAccessor)
 	if err != nil {
 		return nil, err
 	}

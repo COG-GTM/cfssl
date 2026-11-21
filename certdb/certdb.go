@@ -76,7 +76,6 @@ type Accessor interface {
 	GetCertificate(serial, aki string) ([]CertificateRecord, error)
 	GetUnexpiredCertificates() ([]CertificateRecord, error)
 	GetRevokedAndUnexpiredCertificates() ([]CertificateRecord, error)
-	GetRevokedAndUnexpiredCertificatesSelectColumns() ([]CertificateRecord, error)
 	GetUnexpiredCertificatesByLabel(labels []string) (crs []CertificateRecord, err error)
 	GetRevokedAndUnexpiredCertificatesByLabel(label string) ([]CertificateRecord, error)
 	GetRevokedAndUnexpiredCertificatesByLabelSelectColumns(label string) ([]CertificateRecord, error)
@@ -86,4 +85,20 @@ type Accessor interface {
 	GetUnexpiredOCSPs() ([]OCSPRecord, error)
 	UpdateOCSP(serial, aki, body string, expiry time.Time) error
 	UpsertOCSP(serial, aki, body string, expiry time.Time) error
+}
+
+// RevokedAndUnexpiredSelectColumnsAccessor is implemented by accessors that can
+// load only the serial_number and revoked_at columns needed to build a CRL.
+type RevokedAndUnexpiredSelectColumnsAccessor interface {
+	GetRevokedAndUnexpiredCertificatesSelectColumns() ([]CertificateRecord, error)
+}
+
+// GetRevokedAndUnexpiredCertificatesForCRL returns the revoked and unexpired
+// certificates with at least Serial and RevokedAt set, using the narrower
+// query when the accessor supports it.
+func GetRevokedAndUnexpiredCertificatesForCRL(a Accessor) ([]CertificateRecord, error) {
+	if sc, ok := a.(RevokedAndUnexpiredSelectColumnsAccessor); ok {
+		return sc.GetRevokedAndUnexpiredCertificatesSelectColumns()
+	}
+	return a.GetRevokedAndUnexpiredCertificates()
 }

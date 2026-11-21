@@ -77,6 +77,7 @@ type Accessor struct {
 }
 
 var _ certdb.Accessor = &Accessor{}
+var _ certdb.RevokedAndUnexpiredSelectColumnsAccessor = &Accessor{}
 
 func wrapSQLError(err error) error {
 	if err != nil {

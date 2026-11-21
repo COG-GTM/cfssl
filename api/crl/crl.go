@@ -70,7 +70,7 @@ func NewHandler(dbAccessor certdb.Accessor, caPath string, caKeyPath string) (ht
 func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) error {
 	var newExpiryTime = 7 * helpers.OneDay
 
-	certs, err := h.dbAccessor.GetRevokedAndUnexpiredCertificatesSelectColumns()
+	certs, err := certdb.GetRevokedAndUnexpiredCertificatesForCRL(h.dbAccessor)
 	if err != nil {
 		return err
 	}
