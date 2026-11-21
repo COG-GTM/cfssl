@@ -288,6 +288,21 @@ func testUpdateCertificateAndGetCertificate(ta TestAccessor, t *testing.T) {
 		t.Errorf("want Certificate %+v, got %+v", want, got)
 	}
 
+	rets, err = ta.Accessor.GetRevokedAndUnexpiredCertificatesSelectColumns()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rets) != 1 {
+		t.Fatal("should return exactly one record")
+	}
+
+	got = rets[0]
+
+	if want.Serial != got.Serial || got.RevokedAt.IsZero() || got.PEM != "" {
+		t.Errorf("want Certificate %+v, got %+v", want, got)
+	}
+
 	rets, err = ta.Accessor.GetRevokedAndUnexpiredCertificatesByLabel("")
 	if err != nil {
 		t.Fatal(err)

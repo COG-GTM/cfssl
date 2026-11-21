@@ -44,6 +44,10 @@ SELECT serial_number, revoked_at FROM certificates
 SELECT %s FROM certificates
 	WHERE CURRENT_TIMESTAMP < expiry AND status='revoked';`
 
+	selectRevokedAndUnexpiredSQL = `
+SELECT serial_number, revoked_at FROM certificates
+	WHERE CURRENT_TIMESTAMP < expiry AND status='revoked';`
+
 	updateRevokeSQL = `
 UPDATE certificates
 	SET status='revoked', revoked_at=CURRENT_TIMESTAMP, reason=:reason
@@ -209,6 +213,21 @@ func (d *Accessor) GetRevokedAndUnexpiredCertificates() (crs []certdb.Certificat
 	}
 
 	err = d.db.Select(&crs, fmt.Sprintf(d.db.Rebind(selectAllRevokedAndUnexpiredSQL), sqlstruct.Columns(certdb.CertificateRecord{})))
+	if err != nil {
+		return nil, wrapSQLError(err)
+	}
+
+	return crs, nil
+}
+
+// GetRevokedAndUnexpiredCertificatesSelectColumns gets serial_number and revoked_at from all revoked and unexpired certificate from db (for CRLs).
+func (d *Accessor) GetRevokedAndUnexpiredCertificatesSelectColumns() (crs []certdb.CertificateRecord, err error) {
+	err = d.checkDB()
+	if err != nil {
+		return nil, err
+	}
+
+	err = d.db.Select(&crs, d.db.Rebind(selectRevokedAndUnexpiredSQL))
 	if err != nil {
 		return nil, wrapSQLError(err)
 	}

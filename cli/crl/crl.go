@@ -78,7 +78,7 @@ func generateCRL(c cli.Config) (crlBytes []byte, err error) {
 		return nil, err
 	}
 
-	certs, err := dbAccessor.GetRevokedAndUnexpiredCertificates()
+	certs, err := dbAccessor.GetRevokedAndUnexpiredCertificatesSelectColumns()
 	if err != nil {
 		return nil, err
 	}
