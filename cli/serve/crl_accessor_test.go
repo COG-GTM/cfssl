@@ -21,6 +21,7 @@ func TestCRLAccessorSelectsColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := testdb.SQLiteDB(dbPath)
+	t.Cleanup(func() { db.Close() })
 	if _, err := db.Exec("DELETE FROM certificates"); err != nil {
 		t.Fatal(err)
 	}
