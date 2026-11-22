@@ -10,7 +10,6 @@ import (
 
 	"github.com/cloudflare/cfssl/api"
 	"github.com/cloudflare/cfssl/certdb"
-	certsql "github.com/cloudflare/cfssl/certdb/sql"
 	"github.com/cloudflare/cfssl/crl"
 	"github.com/cloudflare/cfssl/errors"
 	"github.com/cloudflare/cfssl/helpers"
@@ -71,7 +70,7 @@ func NewHandler(dbAccessor certdb.Accessor, caPath string, caKeyPath string) (ht
 func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) error {
 	var newExpiryTime = 7 * helpers.OneDay
 
-	certs, err := certsql.GetRevokedAndUnexpiredCertificatesForCRL(h.dbAccessor)
+	certs, err := h.dbAccessor.GetRevokedAndUnexpiredCertificates()
 	if err != nil {
 		return err
 	}
