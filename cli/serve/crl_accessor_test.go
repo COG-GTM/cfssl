@@ -1,6 +1,8 @@
 package serve
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -10,7 +12,15 @@ import (
 )
 
 func TestCRLAccessorSelectsColumns(t *testing.T) {
-	db := testdb.SQLiteDB("../../certdb/testdb/certstore_development.db")
+	fixture, err := os.ReadFile("../../certdb/testdb/certstore_development.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(t.TempDir(), "certstore.db")
+	if err := os.WriteFile(dbPath, fixture, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db := testdb.SQLiteDB(dbPath)
 	if _, err := db.Exec("DELETE FROM certificates"); err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +42,7 @@ func TestCRLAccessorSelectsColumns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := crlAccessor{full}.GetRevokedAndUnexpiredCertificates()
+	got, err := newCRLAccessor(db).GetRevokedAndUnexpiredCertificates()
 	if err != nil {
 		t.Fatal(err)
 	}

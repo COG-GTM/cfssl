@@ -116,6 +116,10 @@ type crlAccessor struct {
 	*certsql.Accessor
 }
 
+func newCRLAccessor(db *sqlx.DB) certdb.Accessor {
+	return crlAccessor{certsql.NewAccessor(db)}
+}
+
 func (a crlAccessor) GetRevokedAndUnexpiredCertificates() ([]certdb.CertificateRecord, error) {
 	return a.GetRevokedAndUnexpiredCertificatesSelectColumns()
 }
@@ -177,7 +181,7 @@ var endpoints = map[string]func() (http.Handler, error){
 			return nil, errNoCertDBConfigured
 		}
 
-		return crl.NewHandler(crlAccessor{certsql.NewAccessor(db)}, conf.CAFile, conf.CAKeyFile)
+		return crl.NewHandler(newCRLAccessor(db), conf.CAFile, conf.CAKeyFile)
 	},
 
 	"gencrl": func() (http.Handler, error) {
