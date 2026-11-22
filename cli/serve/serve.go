@@ -30,6 +30,7 @@ import (
 	"github.com/cloudflare/cfssl/api/scan"
 	"github.com/cloudflare/cfssl/api/signhandler"
 	"github.com/cloudflare/cfssl/bundler"
+	"github.com/cloudflare/cfssl/certdb"
 	"github.com/cloudflare/cfssl/certdb/dbconf"
 	certsql "github.com/cloudflare/cfssl/certdb/sql"
 	"github.com/cloudflare/cfssl/cli"
@@ -109,6 +110,20 @@ func (s *staticFS) Open(name string) (fs.File, error) {
 var errBadSigner = errors.New("signer not initialized")
 var errNoCertDBConfigured = errors.New("cert db not configured (missing -db-config)")
 
+// crlAccessor loads only the serial_number and revoked_at columns the CRL
+// handler uses.
+type crlAccessor struct {
+	*certsql.Accessor
+}
+
+func newCRLAccessor(db *sqlx.DB) certdb.Accessor {
+	return crlAccessor{certsql.NewAccessor(db)}
+}
+
+func (a crlAccessor) GetRevokedAndUnexpiredCertificates() ([]certdb.CertificateRecord, error) {
+	return a.GetRevokedAndUnexpiredCertificatesSelectColumns()
+}
+
 var endpoints = map[string]func() (http.Handler, error){
 	"sign": func() (http.Handler, error) {
 		if s == nil {
@@ -166,7 +181,7 @@ var endpoints = map[string]func() (http.Handler, error){
 			return nil, errNoCertDBConfigured
 		}
 
-		return crl.NewHandler(certsql.NewAccessor(db), conf.CAFile, conf.CAKeyFile)
+		return crl.NewHandler(newCRLAccessor(db), conf.CAFile, conf.CAKeyFile)
 	},
 
 	"gencrl": func() (http.Handler, error) {

@@ -54,6 +54,7 @@ func testEverything(ta TestAccessor, t *testing.T) {
 	testInsertCertificateAndGetUnexpiredCertificate(ta, t)
 	testInsertCertificateAndGetUnexpiredCertificateNullCommonName(ta, t)
 	testUpdateCertificateAndGetCertificate(ta, t)
+	testGetRevokedAndUnexpiredCertificatesSelectColumns(ta, t)
 	testInsertOCSPAndGetOCSP(ta, t)
 	testInsertOCSPAndGetUnexpiredOCSP(ta, t)
 	testUpdateOCSPAndGetOCSP(ta, t)
@@ -311,6 +312,48 @@ func testUpdateCertificateAndGetCertificate(ta TestAccessor, t *testing.T) {
 	// reflection comparison with zero time objects are not stable as it seems
 	if want.Serial != got.Serial || got.RevokedAt.IsZero() {
 		t.Errorf("want Certificate %+v, got %+v", want, got)
+	}
+}
+
+func testGetRevokedAndUnexpiredCertificatesSelectColumns(ta TestAccessor, t *testing.T) {
+	ta.Truncate()
+
+	recs := []certdb.CertificateRecord{
+		{PEM: "fake cert data", Serial: "revoked unexpired", AKI: fakeAKI, Status: "good", Expiry: time.Now().Add(time.Hour)},
+		{PEM: "fake cert data", Serial: "revoked expired", AKI: fakeAKI, Status: "good", Expiry: time.Now().Add(-time.Hour)},
+		{PEM: "fake cert data", Serial: "good unexpired", AKI: fakeAKI, Status: "good", Expiry: time.Now().Add(time.Hour)},
+	}
+	for _, r := range recs {
+		if err := ta.Accessor.InsertCertificate(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, serial := range []string{"revoked unexpired", "revoked expired"} {
+		if err := ta.Accessor.RevokeCertificate(serial, fakeAKI, 2); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	all, err := ta.Accessor.GetRevokedAndUnexpiredCertificates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa, ok := ta.Accessor.(*Accessor)
+	if !ok {
+		t.Fatalf("want *Accessor, got %T", ta.Accessor)
+	}
+	rets, err := sa.GetRevokedAndUnexpiredCertificatesSelectColumns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rets) != 1 || len(all) != 1 {
+		t.Fatalf("want exactly one revoked unexpired record, got %d (all columns: %d)", len(rets), len(all))
+	}
+
+	got := rets[0]
+	if got.Serial != "revoked unexpired" || got.Serial != all[0].Serial || !got.RevokedAt.Equal(all[0].RevokedAt) ||
+		got.RevokedAt.IsZero() || got.PEM != "" {
+		t.Errorf("want serial and revoked_at of %+v, got %+v", all[0], got)
 	}
 }
 
